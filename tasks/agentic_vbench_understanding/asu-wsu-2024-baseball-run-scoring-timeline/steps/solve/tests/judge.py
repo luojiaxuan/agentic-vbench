@@ -2,10 +2,18 @@
 """Grade a run-scoring-timeline reconstruction. Pure Python stdlib, deterministic.
 
 The agent must list every run scored with inning, half, the runner who scored, the
-batter at the plate, and the event type. A predicted run is a true positive only when
-it FULLY reconstructs the run: same inning, same half, same scorer, same batter, and
-same event category. We then score by F1 (misses and false positives both hurt).
-reward = F1.
+batter at the plate, and the event type. Scoring is two-tier:
+
+  * full credit (1.0)    — inning, half, scorer, batter, AND event all match;
+  * partial credit (0.5) — inning, half, scorer, and batter match but the event
+    category differs.
+
+The partial tier exists because some event labels are official-scorer rulings a
+perfect visual agent can legitimately miss (a ball misplayed by a fielder is a hit
+or an error by ruling, not by sight). For the same reason wild_pitch and passed_ball
+— visually identical, split only by the scorer's fault assignment — are merged into
+one equivalence class. reward = F1 over summed credit (misses and false positives
+both hurt).
 
 Why this task and metric: a full game has ~15 runs scattered across 3 hours. The
 score bug shows only the totals changing — it never names the runner who crossed the
@@ -15,8 +23,11 @@ game off the video scores. The oracle (exact list) -> 1.0; an empty or guessed
 list -> ~0.
 
 Baseball has no game clock, so there is no time tolerance; the (inning, half) pair
-anchors each run and duplicate events (the same runner scoring twice in a game, or
-two runs on one swing) are handled by greedy one-to-one multiset matching.
+anchors each run. Duplicate keys — the same runner scoring twice in one half-inning,
+or two runs on one swing — are handled by greedy one-to-one multiset matching (each
+ground-truth run can be consumed by at most one prediction). Exact (full-credit)
+matches are assigned in a first pass so a partial match can never steal a slot from
+an exact one.
 """
 import argparse
 import json
@@ -45,6 +56,8 @@ GROUND_TRUTH = [
   {"inning": 9, "half": "top",    "scorer": "Isaiah Jackson",   "batter": "Harris Williams", "event": "groundout"},
 ]
 
+PARTIAL_CREDIT = 0.5  # identity right, event category wrong (official-ruling ceiling)
+
 # Deterministic aliases for common spelling variants of the closed vocabulary.
 EVENT_ALIASES = {
     "homerun": "home_run", "home run": "home_run", "hr": "home_run",
@@ -59,6 +72,11 @@ EVENT_ALIASES = {
     "stolen base": "stolen_base", "double play": "double_play",
 }
 
+# Official-scorer equivalence classes: labels a flawless visual agent cannot be
+# expected to separate. wild_pitch vs passed_ball is a fault ruling (pitcher vs
+# catcher) over the same visual play.
+EVENT_GROUPS = {"passed_ball": "wild_pitch"}
+
 
 def norm(s):
     return re.sub(r"[^a-z]", "", str(s).lower())
@@ -67,7 +85,8 @@ def norm(s):
 def norm_event(s):
     key = str(s).strip().lower()
     key = EVENT_ALIASES.get(key, key)
-    return re.sub(r"[^a-z_]", "", key)
+    key = re.sub(r"[^a-z_]", "", key)
+    return EVENT_GROUPS.get(key, key)
 
 
 def norm_half(s):
@@ -101,6 +120,28 @@ def name_match(pred, gt_full):
     return gl in _UNIQUE_LASTS and p == gl  # lastname only if unambiguous
 
 
+def parse_pred(pr):
+    if not isinstance(pr, dict):
+        return None
+    try:
+        inning = int(pr.get("inning"))
+    except (TypeError, ValueError):
+        return None
+    return {
+        "inning": inning,
+        "half": norm_half(pr.get("half", "")),
+        "scorer": pr.get("scorer", ""),
+        "batter": pr.get("batter", ""),
+        "event": norm_event(pr.get("event", "")),
+    }
+
+
+def identity_match(p, gt):
+    return p["inning"] == gt["inning"] and p["half"] == gt["half"] \
+        and name_match(p["scorer"], gt["scorer"]) \
+        and name_match(p["batter"], gt["batter"])
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--solution", required=True, type=Path)
@@ -118,49 +159,66 @@ def main():
     except Exception as exc:  # noqa: BLE001 - malformed output scores 0
         reason, preds = f"unreadable solution.json: {exc}", []
 
-    used = [False] * len(GROUND_TRUTH)        # strict (full-run) TPs
-    used_loose = [False] * len(GROUND_TRUTH)  # scorer+inning+half only, diagnostics
-    tp = 0
-    scorer_inning_only = 0
-    for pr in preds:
-        if not isinstance(pr, dict):
+    parsed = [parse_pred(pr) for pr in preds]
+
+    used = [False] * len(GROUND_TRUTH)
+    consumed = [False] * len(parsed)
+    full = 0
+    # pass 1: exact matches (identity + event) so partials never steal exact slots
+    for j, p in enumerate(parsed):
+        if p is None:
             continue
-        try:
-            pi = int(pr.get("inning"))
-        except (TypeError, ValueError):
-            continue
-        ph = norm_half(pr.get("half", ""))
-        # diagnostic: did it at least place the right scorer in the right half-inning?
         for i, gt in enumerate(GROUND_TRUTH):
-            if not used_loose[i] and pi == gt["inning"] and ph == gt["half"] \
-                    and name_match(pr.get("scorer", ""), gt["scorer"]):
+            if not used[i] and identity_match(p, gt) \
+                    and p["event"] == norm_event(gt["event"]):
+                used[i] = True
+                consumed[j] = True
+                full += 1
+                break
+    # pass 2: identity-only matches at partial credit
+    partial = 0
+    for j, p in enumerate(parsed):
+        if p is None or consumed[j]:
+            continue
+        for i, gt in enumerate(GROUND_TRUTH):
+            if not used[i] and identity_match(p, gt):
+                used[i] = True
+                consumed[j] = True
+                partial += 1
+                break
+
+    # diagnostic: right scorer in the right half-inning, batter/event aside
+    used_loose = [False] * len(GROUND_TRUTH)
+    scorer_inning_only = 0
+    for p in parsed:
+        if p is None:
+            continue
+        for i, gt in enumerate(GROUND_TRUTH):
+            if not used_loose[i] and p["inning"] == gt["inning"] \
+                    and p["half"] == gt["half"] \
+                    and name_match(p["scorer"], gt["scorer"]):
                 used_loose[i] = True
                 scorer_inning_only += 1
                 break
-        # scored: full-run reconstruction (also requires batter and event)
-        for i, gt in enumerate(GROUND_TRUTH):
-            if not used[i] and pi == gt["inning"] and ph == gt["half"] \
-                    and name_match(pr.get("scorer", ""), gt["scorer"]) \
-                    and name_match(pr.get("batter", ""), gt["batter"]) \
-                    and norm_event(pr.get("event", "")) == gt["event"]:
-                used[i] = True
-                tp += 1
-                break
 
+    credit = full + PARTIAL_CREDIT * partial
     n_pred, n_gt = len(preds), len(GROUND_TRUTH)
-    precision = tp / n_pred if n_pred else 0.0
-    recall = tp / n_gt if n_gt else 0.0
+    precision = credit / n_pred if n_pred else 0.0
+    recall = credit / n_gt if n_gt else 0.0
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
 
     details = {
         "reason": reason,
         "n_ground_truth": n_gt,
         "n_predicted": n_pred,
-        "true_positives_full_run": tp,
+        "full_matches": full,
+        "partial_matches_event_off": partial,
+        "credit": round(credit, 4),
         "scorer_inning_only_matches": scorer_inning_only,
         "precision": round(precision, 4),
         "recall": round(recall, 4),
         "f1": round(f1, 4),
+        "partial_credit": PARTIAL_CREDIT,
     }
     args.reward_json.parent.mkdir(parents=True, exist_ok=True)
     args.reward_json.write_text(json.dumps({"reward": round(f1, 4), "details": details}, indent=2))

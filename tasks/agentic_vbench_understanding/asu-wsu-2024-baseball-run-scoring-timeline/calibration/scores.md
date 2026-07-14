@@ -15,3 +15,8 @@ tool-call turns**. Oracle must be 1.0 and an empty attempt near 0.
 
 Raw transcripts are in `rollouts/` — one file per agent, so a reviewer can confirm
 each score was earned honestly and count the tool-call turns.
+
+Note on `no_media`: the official NCAA play-by-play for this game is public web
+data. The container builds with `allow_internet = false` and the prompt forbids
+lookups, so the no-media ablation measures pure model recall/guessing of that
+public record; the measured row above verifies it is ≈ 0.

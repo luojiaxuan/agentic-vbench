@@ -37,8 +37,13 @@ ground_truth:
     player's individual R column reconcile exactly with the 15-run list
 
 scorer:
-  metric: F1 over runs; a TP requires inning, half, scorer, batter, and event to all
-    match (names normalized; unambiguous-lastname rule; greedy one-to-one matching)
+  metric: two-tier F1 over runs — full credit (1.0) requires inning, half, scorer,
+    batter, and event; partial credit (0.5) when only the event category differs
+    (some labels are official-scorer rulings a flawless visual agent can miss, and
+    wild_pitch/passed_ball are merged as one visually-identical class). Names
+    normalized (unambiguous-lastname rule); greedy one-to-one matching with exact
+    matches assigned first, so duplicate keys — the same runner scoring twice in
+    one half-inning — are consumed at most once
   oracle_reward: 1.0
   null_reward: 0.0 (measured; empty list)
 
