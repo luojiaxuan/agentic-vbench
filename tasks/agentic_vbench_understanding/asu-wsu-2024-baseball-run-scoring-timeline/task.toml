@@ -1,0 +1,36 @@
+version = "1.0"
+
+[task]
+name = "agentic-vbench/asu-wsu-2024-baseball-run-scoring-timeline"
+
+[metadata]
+difficulty = "hard"
+category = "video-understanding"
+tags = ["video-understanding", "sports-analytics", "baseball", "event-timeline", "agentic-vbench-sports"]
+# Full broadcast, Arizona State at Washington State (college baseball, 2024-03-22,
+# final 8-7 WSU), from the official WSU Athletics YouTube upload, audio stripped.
+# Ground truth: official NCAA play-by-play (stats.ncaa.org contest 4532325),
+# cross-checked against both schools' box scores.
+source = "youtube: s-VS4Z1hEaA (WSU Baseball: Arizona State at Washington State | Full Game | 3/22/24)"
+
+[environment]
+build_timeout_sec = 2400.0
+cpus = 4
+memory_mb = 8192
+# A full ~3.2h broadcast at 720p (video-only) is a few GB; give the build and trial room.
+storage_mb = 16384
+# The clip is baked at build time and the answer is not online: keep this false.
+allow_internet = false
+
+[environment.env]
+HF_TOKEN = "${HF_TOKEN:-}"
+
+[[steps]]
+name = "solve"
+
+[steps.agent]
+# A full game is long: give the agent real time to sample and tally.
+timeout_sec = 3600.0
+
+[steps.verifier]
+timeout_sec = 600.0
