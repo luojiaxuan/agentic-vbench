@@ -64,9 +64,11 @@ anti_shortcut:
     (to be measured)
 
 input:
-  url: https://www.youtube.com/watch?v=s-VS4Z1hEaA (official WSU Athletics upload;
-    re-hosted processed copy pinned in environment/Dockerfile before merge)
-  sha256: TBD (filled by environment/bake_media.sh after re-host)
-  length_min: 192
+  url: https://huggingface.co/datasets/gavinlaw/agentic-vbench-media/resolve/main/asu-wsu-2024-03-22-720p-noaudio.mp4
+    (research re-host of the official WSU Athletics upload
+    https://www.youtube.com/watch?v=s-VS4Z1hEaA — provenance, rights and takedown
+    policy documented in the dataset README)
+  sha256: ecef26a35713a10c453619fa42be1292715caf5815f46dbac03cde22297db43d
+  length_min: 192 (measured 191.6)
   resolution: 720 (source stream is 1080p60; baked at 720p, audio stripped)
 ```

@@ -19,10 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #   An archive.org mirror of the same upload exists (youtube-s-VS4Z1hEaA, 480p)
 #     as a fallback provenance record.
 #
-# TODO before merge: replace MATERIALS_URL with the re-hosted (Hugging Face) URL of
-# the processed file and fill in its SHA256 (bake_media.sh prints both).
-ARG MATERIALS_URL=REPLACE_WITH_REHOSTED_URL/asu-wsu-2024-03-22-720p-noaudio.mp4
-ARG MATERIALS_SHA256=REPLACE_WITH_SHA256
+ARG MATERIALS_URL=https://huggingface.co/datasets/gavinlaw/agentic-vbench-media/resolve/main/asu-wsu-2024-03-22-720p-noaudio.mp4
+ARG MATERIALS_SHA256=ecef26a35713a10c453619fa42be1292715caf5815f46dbac03cde22297db43d
 RUN mkdir -p /baked \
  && curl --fail --silent --show-error --location --retry 5 --retry-delay 3 \
       "$MATERIALS_URL" -o /baked/game.mp4 \
