@@ -29,8 +29,11 @@ HF_TOKEN = "${HF_TOKEN:-}"
 name = "solve"
 
 [steps.agent]
-# A full game is long: give the agent real time to sample and tally.
-timeout_sec = 3600.0
+# A full game is long: give the agent real time to sample and tally. Measured
+# calibration rollouts on the companion volleyball task (Claude Code 291 turns,
+# Codex 320 turns) genuinely ran multiple hours wall-clock to reach a real
+# attempt; this task's broadcast is even longer (192 min vs 115 min).
+timeout_sec = 18000.0
 
 [steps.verifier]
 timeout_sec = 600.0
